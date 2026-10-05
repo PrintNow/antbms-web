@@ -90,7 +90,7 @@ export default function App() {
       <Button className="connect-button desktop-button" leftSection={<Bluetooth size={17} />} onClick={toggleConnection} loading={connectionInfo.phase === 'connecting'}>{connected ? '断开连接' : '连接保护板'}</Button>
     </header>
 
-    <div className="utility-row"><Badge className="read-only" leftSection={<ShieldCheck size={14} />} variant="light">只读监测 · 不改参数</Badge><span className="refresh-note">自动刷新 · 2 秒</span></div>
+    <div className="utility-row"><Badge className="read-only" leftSection={<ShieldCheck size={14} />} variant="light">只读监测 · 不改参数</Badge><span className="refresh-note">自适应刷新 · 活动时 0.8 秒</span></div>
     <Alert className={`connection-state connection-state--${connectionInfo.phase}`} variant="light" color={connectionInfo.phase === 'error' ? 'red' : connectionInfo.phase === 'ready' ? 'teal' : 'gray'} icon={<span className="state-dot" />}>
       {connectionInfo.message}
     </Alert>
@@ -100,7 +100,7 @@ export default function App() {
         <div className="spark">⚡</div><p>当前电量 · SOC</p>
         <div className="soc-number">{Number.isFinite(data.soc) ? data.soc : '—'}<small>%</small></div>
         <Progress className="charge-rail" value={soc} color="teal" radius="xl" aria-label="电量进度" />
-        <div className="micro-grid"><div><span>现在在干嘛</span><strong>{data.state}</strong></div><div><span>电池串数</span><strong>{data.cellCount ? `${data.cellCount} 串` : '—'}</strong></div><div><span>通信通道</span><strong title={connectionInfo.channel}>{connectionInfo.channel}</strong></div></div>
+        <div className="micro-grid"><div><span>运行状态</span><strong>{data.state}</strong></div><div><span>电池串数</span><strong>{data.cellCount ? `${data.cellCount} 串` : '—'}</strong></div><div><span>通信通道</span><strong title={connectionInfo.channel}>{connectionInfo.channel}</strong></div></div>
       </article>
       <section className="metrics">
         <MetricCard label="总容量" value={display(data.totalAh)} unit="Ah" />
@@ -112,21 +112,21 @@ export default function App() {
       </section>
     </section>
     <section className="detail-grid">
-      <article className="detail-panel detail-panel--cells"><div className="panel-heading"><div><p>单体电压</p><h2>压差，别藏着掖着</h2></div><span>{data.cellCount ? `${data.cellCount} 串` : '—'}</span></div>
+      <article className="detail-panel detail-panel--cells"><div className="panel-heading"><div><p>单体电压</p><h2>电压概览</h2></div><span>{data.cellCount ? `${data.cellCount} 串` : '—'}</span></div>
         <div className="summary-row"><div><span>最高</span><b>{display(data.cellHigh, 3)} V</b></div><div><span>最低</span><b>{display(data.cellLow, 3)} V</b></div><div><span>压差</span><b>{display(data.cellDifference, 3)} V</b></div></div>
         <div className="cell-list">{data.cellVoltages?.length ? data.cellVoltages.map((value, index) => <span key={index}>#{index + 1}<b>{value.toFixed(3)} V</b></span>) : <em>连接后显示每串电芯电压</em>}</div>
       </article>
-      <article className="detail-panel"><div className="panel-heading"><div><p>温度与 MOS</p><h2>热不热，一看便知</h2></div><span>🌡️</span></div>
+      <article className="detail-panel"><div className="panel-heading"><div><p>温度与 MOS</p><h2>温度与开关状态</h2></div><span>🌡️</span></div>
         <div className="key-values"><div><span>MOS 温度</span><b>{display(data.mosTemperature, 0)} °C</b></div><div><span>均衡温度</span><b>{display(data.balanceTemperature, 0)} °C</b></div><div><span>充电 MOS</span><b>{mosLabel(data.chargeMos)}</b></div><div><span>放电 MOS</span><b>{mosLabel(data.dischargeMos)}</b></div><div><span>充电器</span><b>{data.chargerOnline === undefined ? '暂不可用' : data.chargerOnline ? '在线' : '离线'}</b></div><div><span>充电器输出</span><b>{data.chargerOutputVoltage === undefined || data.chargerOutputCurrent === undefined ? '暂不可用' : `${display(data.chargerOutputVoltage, 1)} V / ${display(data.chargerOutputCurrent, 1)} A`}</b></div></div>
         <div className="sensor-row">{data.temperatures?.length ? data.temperatures.map((value, index) => <span key={index}>T{index + 1} <b>{value}°</b></span>) : <em>温度传感器数据待连接</em>}</div>
       </article>
-      <article className="detail-panel"><div className="panel-heading"><div><p>运行与安全</p><h2>保护板的碎碎念</h2></div><span>🛡️</span></div>
+      <article className="detail-panel"><div className="panel-heading"><div><p>运行与安全</p><h2>保护与告警</h2></div><span>🛡️</span></div>
         <div className="key-values"><div><span>累计循环容量</span><b>{display(data.totalCycleAh, 1)} Ah</b></div><div><span>累计运行</span><b>{secondsToText(data.runtimeSeconds)}</b></div><div><span>均衡单体</span><b>{data.balanceBits?.length ? `${data.balanceBits.length} 串` : '无'}</b></div><div><span>权限等级</span><b>{data.permissions ?? '—'}</b></div></div>
         <div className="safety-row"><span className={data.protectionBits?.length ? 'has-alert' : ''}>保护 {data.protectionBits?.length ? `#${data.protectionBits.join('、#')}` : '正常'}</span><span className={data.warningBits?.length ? 'has-warning' : ''}>告警 {data.warningBits?.length ? `#${data.warningBits.join('、#')}` : '无'}</span></div>
       </article>
     </section>
     <aside className="tip"><b>手机使用：</b>推荐 Android Chrome / Edge；连接后页面只会发送状态查询，不会改 BMS 设置。</aside>
-    <p className="footer-note">数据仅显示在当前页面。断开后，蚂蚁和数据都会各自回家。</p>
+    <p className="footer-note">数据仅显示在当前页面；断开连接后停止读取。</p>
     <Button className="connect-button mobile-button" leftSection={<BatteryCharging size={18} />} onClick={toggleConnection} loading={connectionInfo.phase === 'connecting'}>{connected ? '断开连接' : '连接保护板'}</Button>
   </main>
 }

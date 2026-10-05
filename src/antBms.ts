@@ -89,6 +89,7 @@ export class AntBmsConnection {
   private readonly onStatus: (status: BmsStatus) => void
   private buffer = new Uint8Array()
   private poller?: number
+  private pollingInterval?: number
   private device?: BluetoothDevice
   private writeCharacteristic?: BluetoothRemoteGATTCharacteristic
   private notifyCharacteristic?: BluetoothRemoteGATTCharacteristic
@@ -112,7 +113,7 @@ export class AntBmsConnection {
     await notifyCharacteristic.startNotifications()
     notifyCharacteristic.addEventListener('characteristicvaluechanged', this.onNotification)
     await this.poll()
-    this.poller = window.setInterval(() => this.poll(), 2000)
+    this.startPolling(1000)
     return { deviceName: this.device.name || 'ANT BMS', channel }
   }
 
@@ -161,7 +162,9 @@ export class AntBmsConnection {
       this.buffer = this.buffer.slice(frameLength)
       const parsed = parseAntBmsRealtimeFrame(frame)
       if (!parsed.ok) continue
-      this.onStatus(statusFromValues(parsed.values))
+      const status = statusFromValues(parsed.values)
+      this.onStatus(status)
+      this.startPolling(status.state === '充电' || status.state === '放电' ? 800 : 2000)
     }
   }
 
@@ -174,9 +177,17 @@ export class AntBmsConnection {
     else await this.writeCharacteristic.writeValueWithoutResponse(frame)
   }
 
+  private startPolling(interval: number): void {
+    if (this.pollingInterval === interval && this.poller) return
+    window.clearInterval(this.poller)
+    this.pollingInterval = interval
+    this.poller = window.setInterval(() => this.poll(), interval)
+  }
+
   close(): void {
     window.clearInterval(this.poller)
     this.poller = undefined
+    this.pollingInterval = undefined
     this.buffer = new Uint8Array()
     this.notifyCharacteristic?.removeEventListener('characteristicvaluechanged', this.onNotification)
     this.device?.removeEventListener('gattserverdisconnected', this.onDisconnected)
