@@ -10,10 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mantine/core": "^9.7.0",
+    "@mantine/hooks": "^9.7.0",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "lucide-react": "^1.52.0",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",

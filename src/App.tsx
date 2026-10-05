@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { Alert, Badge, Button, Progress } from '@mantine/core'
+import { BatteryCharging, Bluetooth, ShieldCheck } from 'lucide-react'
 import { AntBmsConnection, type BmsStatus } from './antBms'
 import { formatMinutes } from './protocol'
 
@@ -85,17 +87,19 @@ export default function App() {
   return <main className="app-shell">
     <header className="topbar">
       <div><p className="eyebrow">ANT BMS · WEB BLUETOOTH</p><h1>电池小管家 <span>🐜</span></h1><p className="subtitle">一眼看电量，少一点心慌。</p></div>
-      <button className="connect-button desktop-button" onClick={toggleConnection} disabled={connectionInfo.phase === 'connecting'}>{connected ? '断开连接' : '找保护板'}</button>
+      <Button className="connect-button desktop-button" leftSection={<Bluetooth size={17} />} onClick={toggleConnection} loading={connectionInfo.phase === 'connecting'}>{connected ? '断开连接' : '连接保护板'}</Button>
     </header>
 
-    <div className="read-only"><span>🛡️</span><b>只读模式</b><i>不写参数，不碰保护阈值</i></div>
-    <section className={`connection-state connection-state--${connectionInfo.phase}`}><span className="state-dot" /><p>{connectionInfo.message}</p></section>
+    <div className="utility-row"><Badge className="read-only" leftSection={<ShieldCheck size={14} />} variant="light">只读监测 · 不改参数</Badge><span className="refresh-note">自动刷新 · 2 秒</span></div>
+    <Alert className={`connection-state connection-state--${connectionInfo.phase}`} variant="light" color={connectionInfo.phase === 'error' ? 'red' : connectionInfo.phase === 'ready' ? 'teal' : 'gray'} icon={<span className="state-dot" />}>
+      {connectionInfo.message}
+    </Alert>
 
     <section className="dashboard">
       <article className="soc-card">
         <div className="spark">⚡</div><p>当前电量 · SOC</p>
         <div className="soc-number">{Number.isFinite(data.soc) ? data.soc : '—'}<small>%</small></div>
-        <div className="charge-rail" aria-label="电量进度"><span style={{ width: `${soc}%` }} /></div>
+        <Progress className="charge-rail" value={soc} color="teal" radius="xl" aria-label="电量进度" />
         <div className="micro-grid"><div><span>现在在干嘛</span><strong>{data.state}</strong></div><div><span>电池串数</span><strong>{data.cellCount ? `${data.cellCount} 串` : '—'}</strong></div><div><span>通信通道</span><strong title={connectionInfo.channel}>{connectionInfo.channel}</strong></div></div>
       </article>
       <section className="metrics">
@@ -123,6 +127,6 @@ export default function App() {
     </section>
     <aside className="tip"><b>手机使用：</b>推荐 Android Chrome / Edge；连接后页面只会发送状态查询，不会改 BMS 设置。</aside>
     <p className="footer-note">数据仅显示在当前页面。断开后，蚂蚁和数据都会各自回家。</p>
-    <button className="connect-button mobile-button" onClick={toggleConnection} disabled={connectionInfo.phase === 'connecting'}>{connected ? '断开连接' : '找保护板'}</button>
+    <Button className="connect-button mobile-button" leftSection={<BatteryCharging size={18} />} onClick={toggleConnection} loading={connectionInfo.phase === 'connecting'}>{connected ? '断开连接' : '连接保护板'}</Button>
   </main>
 }
