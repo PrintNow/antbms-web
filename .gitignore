@@ -1,0 +1,21 @@
+# Dependencies and generated bundles
+node_modules/
+dist/
+
+# Local IDE settings
+.idea/
+*.iml
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Local Sites metadata
+.openai/
+
+# Tooling logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
