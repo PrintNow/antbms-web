@@ -7,7 +7,43 @@ const CHANNEL_PAIRS = [['ffe1', 'ffe1'], ['fff3', 'fff4'], ['fff5', 'fff6']]
 
 export const STATUS_NAMES = ['未知', '静置', '充电', '放电', '待机', '故障']
 
-function crc16(bytes) {
+export interface BmsStatus {
+  soc: number
+  soh: number
+  voltage: number
+  current: number
+  power: number
+  cellCount: number
+  sensorCount: number
+  cellVoltages: number[]
+  cellHigh: number | null
+  cellLow: number | null
+  cellAverage: number | null
+  cellDifference: number | null
+  temperatures: number[]
+  mosTemperature: number
+  balanceTemperature: number
+  state: string
+  permissions: number
+  protectionBits: number[]
+  warningBits: number[]
+  remainingAh: number
+  totalAh: number
+  totalCycleAh: number
+  runtimeSeconds: number
+  balanceBits: number[]
+  chargeMos: number
+  dischargeMos: number
+  balanceState: number
+  bmsType: number
+}
+
+export interface ConnectionInfo {
+  deviceName: string
+  channel: string
+}
+
+function crc16(bytes: Uint8Array): number {
   let crc = 0xffff
   for (const byte of bytes) {
     crc ^= byte
@@ -22,27 +58,54 @@ export function createReadStatusFrame() {
   return new Uint8Array([...head, crc & 0xff, crc >> 8, 0xaa, 0x55])
 }
 
-const uint16 = (data, offset) => data[offset] | (data[offset + 1] << 8)
-const int16 = (data, offset) => {
+const uint16 = (data: Uint8Array, offset: number): number => data[offset] | (data[offset + 1] << 8)
+const int16 = (data: Uint8Array, offset: number): number => {
   const value = uint16(data, offset)
   return value > 0x7fff ? value - 0x10000 : value
 }
-const uint32 = (data, offset) => (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)) >>> 0
+const uint32 = (data: Uint8Array, offset: number): number => (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)) >>> 0
+const int32 = (data: Uint8Array, offset: number): number => (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24))
+const activeBits = (data: Uint8Array, offset: number): number[] => {
+  const bits: number[] = []
+  for (let byte = 0; byte < 8; byte += 1) {
+    const value = data[offset + byte] ?? 0
+    for (let bit = 0; bit < 8; bit += 1) if (value & (1 << bit)) bits.push(byte * 8 + bit + 1)
+  }
+  return bits
+}
 
-export function parseStatus(payload) {
+export function parseStatus(payload: Uint8Array): BmsStatus {
   const sensorCount = payload[2]
   const cellCount = payload[3]
-  let offset = 28 + cellCount * 2 + sensorCount * 2
-  if (payload.length < offset + 24) throw new Error('状态帧长度不足')
-  offset += 4 // MOS 和均衡温度
+  const cellOffset = 28
+  const cellVoltages = Array.from({ length: cellCount }, (_, index) => uint16(payload, cellOffset + index * 2) / 1000)
+  let offset = cellOffset + cellCount * 2
+  const temperatures = Array.from({ length: sensorCount }, (_, index) => int16(payload, offset + index * 2))
+  offset += sensorCount * 2
+  if (payload.length < offset + 28) throw new Error('状态帧长度不足')
+  const mosTemperature = int16(payload, offset)
+  const balanceTemperature = int16(payload, offset + 2)
+  offset += 4
   const voltage = uint16(payload, offset) / 100
   const current = int16(payload, offset + 2) / 10
   const soc = uint16(payload, offset + 4)
-  offset += 8 // 总压、电流、SOC、SOH
-  const chargeMos = payload[offset]
-  const dischargeMos = payload[offset + 1]
+  const soh = uint16(payload, offset + 6)
+  offset += 8
+  const dischargeMos = payload[offset]
+  const chargeMos = payload[offset + 1]
+  const balanceState = payload[offset + 2]
   const bmsType = payload[offset + 3]
-  offset += 4 // MOS、均衡状态、BMS 类型
+  offset += 4
+
+  const totalAh = uint32(payload, offset) / 1e6
+  const remainingAh = uint32(payload, offset + 4) / 1e6
+  const totalCycleAh = uint32(payload, offset + 8) / 1e3
+  const power = int32(payload, offset + 12)
+  const runtimeSeconds = uint32(payload, offset + 16)
+  const balanceBits = activeBits(payload, offset + 20)
+  const cellHigh = cellVoltages.length ? Math.max(...cellVoltages) : null
+  const cellLow = cellVoltages.length ? Math.min(...cellVoltages) : null
+  const cellAverage = cellVoltages.length ? cellVoltages.reduce((sum, value) => sum + value, 0) / cellVoltages.length : null
 
   return {
     soc,
@@ -50,31 +113,56 @@ export function parseStatus(payload) {
     current,
     cellCount,
     sensorCount,
+    cellVoltages,
+    cellHigh,
+    cellLow,
+    cellAverage,
+    cellDifference: cellHigh !== null && cellLow !== null ? cellHigh - cellLow : null,
+    temperatures,
+    mosTemperature,
+    balanceTemperature,
+    soh,
     state: STATUS_NAMES[payload[1]] ?? `状态 ${payload[1]}`,
-    remainingAh: uint32(payload, offset + 4) / 1e6,
-    totalAh: uint32(payload, offset) / 1e6,
+    permissions: payload[0],
+    protectionBits: activeBits(payload, 4),
+    warningBits: activeBits(payload, 12),
+    remainingAh,
+    totalAh,
+    totalCycleAh,
+    power,
+    runtimeSeconds,
+    balanceBits,
     chargeMos,
     dischargeMos,
+    balanceState,
     bmsType,
   }
 }
 
-function suffix(characteristic) {
+function suffix(characteristic: BluetoothRemoteGATTCharacteristic): string {
   return characteristic.uuid.replaceAll('-', '').slice(4, 8).toLowerCase()
 }
 
 export class AntBmsConnection {
-  constructor(onStatus) {
+  private readonly onStatus: (status: BmsStatus) => void
+  private buffer = new Uint8Array()
+  private poller?: number
+  private device?: BluetoothDevice
+  private writeCharacteristic?: BluetoothRemoteGATTCharacteristic
+  private notifyCharacteristic?: BluetoothRemoteGATTCharacteristic
+  channel?: string
+
+  constructor(onStatus: (status: BmsStatus) => void) {
     this.onStatus = onStatus
-    this.buffer = new Uint8Array()
-    this.poller = null
   }
 
-  async connect() {
+  async connect(): Promise<ConnectionInfo> {
     if (!navigator.bluetooth) throw new Error('此浏览器不支持 Web Bluetooth；请使用 Chrome 或 Edge。')
     this.device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: SERVICES })
     this.device.addEventListener('gattserverdisconnected', this.onDisconnected)
-    const server = await this.device.gatt.connect()
+    const gatt = this.device.gatt
+    if (!gatt) throw new Error('该蓝牙设备未提供 GATT 服务。')
+    const server = await gatt.connect()
     const [writeCharacteristic, notifyCharacteristic, channel] = await this.findChannel(server)
     this.writeCharacteristic = writeCharacteristic
     this.notifyCharacteristic = notifyCharacteristic
@@ -86,8 +174,8 @@ export class AntBmsConnection {
     return { deviceName: this.device.name || 'ANT BMS', channel }
   }
 
-  async findChannel(server) {
-    const characteristics = []
+  private async findChannel(server: BluetoothRemoteGATTServer): Promise<[BluetoothRemoteGATTCharacteristic, BluetoothRemoteGATTCharacteristic, string]> {
+    const characteristics: BluetoothRemoteGATTCharacteristic[] = []
     for (const serviceId of SERVICES) {
       try {
         const service = await server.getPrimaryService(serviceId)
@@ -95,7 +183,7 @@ export class AntBmsConnection {
       } catch { /* 服务不存在时继续尝试 */ }
     }
     if (!characteristics.length) throw new Error('未发现 ANT 串口服务（FFE0 / FFF0）。')
-    const bySuffix = (value) => characteristics.find((item) => suffix(item) === value)
+    const bySuffix = (value: string) => characteristics.find((item) => suffix(item) === value)
     for (const [writeId, notifyId] of CHANNEL_PAIRS) {
       const write = bySuffix(writeId)
       const notify = bySuffix(notifyId)
@@ -109,8 +197,9 @@ export class AntBmsConnection {
     return [write, notify, `${suffix(write).toUpperCase()} → ${suffix(notify).toUpperCase()}`]
   }
 
-  onNotification = (event) => {
-    const incoming = new Uint8Array(event.target.value.buffer)
+  private onNotification = (event: Event): void => {
+    const characteristic = event.target as BluetoothRemoteGATTCharacteristic
+    const incoming = new Uint8Array(characteristic.value!.buffer)
     const joined = new Uint8Array(this.buffer.length + incoming.length)
     joined.set(this.buffer)
     joined.set(incoming, this.buffer.length)
@@ -136,23 +225,23 @@ export class AntBmsConnection {
     }
   }
 
-  onDisconnected = () => this.close()
+  private onDisconnected = (): void => this.close()
 
-  async poll() {
+  private async poll(): Promise<void> {
     if (!this.writeCharacteristic) return
     const frame = createReadStatusFrame()
     if (this.writeCharacteristic.properties.write) await this.writeCharacteristic.writeValueWithResponse(frame)
     else await this.writeCharacteristic.writeValueWithoutResponse(frame)
   }
 
-  close() {
+  close(): void {
     window.clearInterval(this.poller)
-    this.poller = null
+    this.poller = undefined
     this.buffer = new Uint8Array()
     this.notifyCharacteristic?.removeEventListener('characteristicvaluechanged', this.onNotification)
     this.device?.removeEventListener('gattserverdisconnected', this.onDisconnected)
     if (this.device?.gatt?.connected) this.device.gatt.disconnect()
-    this.writeCharacteristic = null
-    this.notifyCharacteristic = null
+    this.writeCharacteristic = undefined
+    this.notifyCharacteristic = undefined
   }
 }
