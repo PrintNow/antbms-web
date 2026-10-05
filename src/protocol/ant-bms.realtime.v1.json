@@ -1,0 +1,48 @@
+{
+  "id": "ant-bms.realtime.v1",
+  "name": "ANT BMS 实时监测帧",
+  "frame": {
+    "header": [126, 161],
+    "tail": [170, 85],
+    "function": 17,
+    "lengthOffset": 5,
+    "payloadOffset": 6,
+    "checksum": "crc16-modbus-le"
+  },
+  "request": [126, 161, 1, 0, 0, 190, 24, 85, 170, 85],
+  "variables": {
+    "dynamicLength": "2 * $cellCount + 2 * $temperatureCount"
+  },
+  "fields": [
+    { "key": "permissions", "offset": "0", "type": "u8" },
+    { "key": "batteryStateCode", "offset": "1", "type": "u8", "enum": "batteryState" },
+    { "key": "temperatureCount", "offset": "2", "type": "u8" },
+    { "key": "cellCount", "offset": "3", "type": "u8" },
+    { "key": "protectionBits", "offset": "4", "type": "bitset64", "bitIndexBase": 1 },
+    { "key": "warningBits", "offset": "12", "type": "bitset64", "bitIndexBase": 1 },
+    { "key": "balanceStateBits", "offset": "20", "type": "bitset64", "bitIndexBase": 1 },
+    { "key": "cellVoltages", "offset": "28", "type": "u16", "repeat": "$cellCount", "stride": 2, "scale": 0.001 },
+    { "key": "temperatures", "offset": "28 + 2 * $cellCount", "type": "i16", "repeat": "$temperatureCount", "stride": 2 },
+    { "key": "mosTemperature", "offset": "28 + $dynamicLength", "type": "i16" },
+    { "key": "balanceTemperature", "offset": "30 + $dynamicLength", "type": "i16" },
+    { "key": "voltage", "offset": "32 + $dynamicLength", "type": "u16", "scale": 0.01 },
+    { "key": "current", "offset": "34 + $dynamicLength", "type": "i16", "scale": 0.1 },
+    { "key": "soc", "offset": "36 + $dynamicLength", "type": "u16" },
+    { "key": "soh", "offset": "38 + $dynamicLength", "type": "u16" },
+    { "key": "dischargeMos", "offset": "40 + $dynamicLength", "type": "u8", "enum": "mosState" },
+    { "key": "chargeMos", "offset": "41 + $dynamicLength", "type": "u8", "enum": "mosState" },
+    { "key": "balanceState", "offset": "42 + $dynamicLength", "type": "u8" },
+    { "key": "bmsType", "offset": "43 + $dynamicLength", "type": "u8" },
+    { "key": "totalAh", "offset": "44 + $dynamicLength", "type": "u32", "scale": 0.000001 },
+    { "key": "remainingAh", "offset": "48 + $dynamicLength", "type": "u32", "scale": 0.000001 },
+    { "key": "totalCycleAh", "offset": "52 + $dynamicLength", "type": "u32", "scale": 0.001 },
+    { "key": "power", "offset": "56 + $dynamicLength", "type": "i32" },
+    { "key": "runtimeSeconds", "offset": "60 + $dynamicLength", "type": "u32" },
+    { "key": "balanceBits", "offset": "64 + $dynamicLength", "type": "bitset32", "bitIndexBase": 1 },
+    { "key": "chargeRemainingMinutes", "offset": "114 + $dynamicLength", "type": "u16", "optional": true },
+    { "key": "dischargeRemainingMinutes", "offset": "116 + $dynamicLength", "type": "u16", "optional": true },
+    { "key": "chargerOutputVoltage", "offset": "124 + $dynamicLength", "type": "u16", "scale": 0.1, "optional": true },
+    { "key": "chargerOutputCurrent", "offset": "126 + $dynamicLength", "type": "u16", "scale": 0.1, "optional": true },
+    { "key": "chargerStateWord", "offset": "128 + $dynamicLength", "type": "u16", "optional": true, "bitFields": { "chargerOnline": { "bit": 15 }, "chargerState": { "mask": 32767 } } }
+  ]
+}

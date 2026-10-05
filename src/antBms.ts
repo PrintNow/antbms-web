@@ -1,11 +1,11 @@
+import { antBmsRealtimeProfile, decodePayload, enumLabel, parseAntBmsRealtimeFrame, type ProtocolValues } from './protocol'
+
 const SERVICES = [
   '0000ffe0-0000-1000-8000-00805f9b34fb',
   '0000fff0-0000-1000-8000-00805f9b34fb',
 ]
 
 const CHANNEL_PAIRS = [['ffe1', 'ffe1'], ['fff3', 'fff4'], ['fff5', 'fff6']]
-
-export const STATUS_NAMES = ['未知', '静置', '充电', '放电', '待机', '故障']
 
 export interface BmsStatus {
   soc: number
@@ -36,6 +36,12 @@ export interface BmsStatus {
   dischargeMos: number
   balanceState: number
   bmsType: number
+  chargeRemainingMinutes?: number
+  dischargeRemainingMinutes?: number
+  chargerOnline?: boolean
+  chargerState?: number
+  chargerOutputVoltage?: number
+  chargerOutputCurrent?: number
 }
 
 export interface ConnectionInfo {
@@ -43,99 +49,35 @@ export interface ConnectionInfo {
   channel: string
 }
 
-function crc16(bytes: Uint8Array): number {
-  let crc = 0xffff
-  for (const byte of bytes) {
-    crc ^= byte
-    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? (crc >>> 1) ^ 0xa001 : crc >>> 1
-  }
-  return crc
-}
-
 export function createReadStatusFrame() {
-  const head = new Uint8Array([0x7e, 0xa1, 0x01, 0x00, 0x00, 0xbe])
-  const crc = crc16(head.slice(1))
-  return new Uint8Array([...head, crc & 0xff, crc >> 8, 0xaa, 0x55])
+  return new Uint8Array(antBmsRealtimeProfile.request)
 }
 
-const uint16 = (data: Uint8Array, offset: number): number => data[offset] | (data[offset + 1] << 8)
-const int16 = (data: Uint8Array, offset: number): number => {
-  const value = uint16(data, offset)
-  return value > 0x7fff ? value - 0x10000 : value
-}
-const uint32 = (data: Uint8Array, offset: number): number => (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)) >>> 0
-const int32 = (data: Uint8Array, offset: number): number => (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24))
-const activeBits = (data: Uint8Array, offset: number): number[] => {
-  const bits: number[] = []
-  for (let byte = 0; byte < 8; byte += 1) {
-    const value = data[offset + byte] ?? 0
-    for (let bit = 0; bit < 8; bit += 1) if (value & (1 << bit)) bits.push(byte * 8 + bit + 1)
-  }
-  return bits
-}
+const number = (values: ProtocolValues, key: string): number => typeof values[key] === 'number' ? values[key] as number : 0
+const numbers = (values: ProtocolValues, key: string): number[] => Array.isArray(values[key]) ? values[key] as number[] : []
+const optionalNumber = (values: ProtocolValues, key: string): number | undefined => typeof values[key] === 'number' ? values[key] as number : undefined
 
 export function parseStatus(payload: Uint8Array): BmsStatus {
-  const sensorCount = payload[2]
-  const cellCount = payload[3]
-  const cellOffset = 28
-  const cellVoltages = Array.from({ length: cellCount }, (_, index) => uint16(payload, cellOffset + index * 2) / 1000)
-  let offset = cellOffset + cellCount * 2
-  const temperatures = Array.from({ length: sensorCount }, (_, index) => int16(payload, offset + index * 2))
-  offset += sensorCount * 2
-  if (payload.length < offset + 28) throw new Error('状态帧长度不足')
-  const mosTemperature = int16(payload, offset)
-  const balanceTemperature = int16(payload, offset + 2)
-  offset += 4
-  const voltage = uint16(payload, offset) / 100
-  const current = int16(payload, offset + 2) / 10
-  const soc = uint16(payload, offset + 4)
-  const soh = uint16(payload, offset + 6)
-  offset += 8
-  const dischargeMos = payload[offset]
-  const chargeMos = payload[offset + 1]
-  const balanceState = payload[offset + 2]
-  const bmsType = payload[offset + 3]
-  offset += 4
+  return statusFromValues(decodePayload(antBmsRealtimeProfile, payload).values)
+}
 
-  const totalAh = uint32(payload, offset) / 1e6
-  const remainingAh = uint32(payload, offset + 4) / 1e6
-  const totalCycleAh = uint32(payload, offset + 8) / 1e3
-  const power = int32(payload, offset + 12)
-  const runtimeSeconds = uint32(payload, offset + 16)
-  const balanceBits = activeBits(payload, offset + 20)
+export function statusFromValues(values: ProtocolValues): BmsStatus {
+  const cellVoltages = numbers(values, 'cellVoltages')
   const cellHigh = cellVoltages.length ? Math.max(...cellVoltages) : null
   const cellLow = cellVoltages.length ? Math.min(...cellVoltages) : null
-  const cellAverage = cellVoltages.length ? cellVoltages.reduce((sum, value) => sum + value, 0) / cellVoltages.length : null
-
+  const chargerOnline = values.chargerOnline === true ? true : values.chargerOnline === false ? false : undefined
   return {
-    soc,
-    voltage,
-    current,
-    cellCount,
-    sensorCount,
-    cellVoltages,
-    cellHigh,
-    cellLow,
-    cellAverage,
+    soc: number(values, 'soc'), soh: number(values, 'soh'), voltage: number(values, 'voltage'), current: number(values, 'current'), power: number(values, 'power'),
+    cellCount: number(values, 'cellCount'), sensorCount: number(values, 'temperatureCount'), cellVoltages, cellHigh, cellLow,
+    cellAverage: cellVoltages.length ? cellVoltages.reduce((sum, value) => sum + value, 0) / cellVoltages.length : null,
     cellDifference: cellHigh !== null && cellLow !== null ? cellHigh - cellLow : null,
-    temperatures,
-    mosTemperature,
-    balanceTemperature,
-    soh,
-    state: STATUS_NAMES[payload[1]] ?? `状态 ${payload[1]}`,
-    permissions: payload[0],
-    protectionBits: activeBits(payload, 4),
-    warningBits: activeBits(payload, 12),
-    remainingAh,
-    totalAh,
-    totalCycleAh,
-    power,
-    runtimeSeconds,
-    balanceBits,
-    chargeMos,
-    dischargeMos,
-    balanceState,
-    bmsType,
+    temperatures: numbers(values, 'temperatures'), mosTemperature: number(values, 'mosTemperature'), balanceTemperature: number(values, 'balanceTemperature'),
+    state: enumLabel('batteryState', optionalNumber(values, 'batteryStateCode')), permissions: number(values, 'permissions'),
+    protectionBits: numbers(values, 'protectionBits'), warningBits: numbers(values, 'warningBits'), remainingAh: number(values, 'remainingAh'), totalAh: number(values, 'totalAh'),
+    totalCycleAh: number(values, 'totalCycleAh'), runtimeSeconds: number(values, 'runtimeSeconds'), balanceBits: numbers(values, 'balanceBits'),
+    chargeMos: number(values, 'chargeMos'), dischargeMos: number(values, 'dischargeMos'), balanceState: number(values, 'balanceState'), bmsType: number(values, 'bmsType'),
+    chargeRemainingMinutes: optionalNumber(values, 'chargeRemainingMinutes'), dischargeRemainingMinutes: optionalNumber(values, 'dischargeRemainingMinutes'),
+    chargerOnline, chargerState: optionalNumber(values, 'chargerState'), chargerOutputVoltage: optionalNumber(values, 'chargerOutputVoltage'), chargerOutputCurrent: optionalNumber(values, 'chargerOutputCurrent'),
   }
 }
 
@@ -217,11 +159,9 @@ export class AntBmsConnection {
       if (this.buffer.length < frameLength) return
       const frame = this.buffer.slice(0, frameLength)
       this.buffer = this.buffer.slice(frameLength)
-      if (frame.at(-2) !== 0xaa || frame.at(-1) !== 0x55) continue
-      const expected = crc16(frame.slice(1, 6 + frame[5]))
-      const actual = frame[6 + frame[5]] | (frame[7 + frame[5]] << 8)
-      if (expected !== actual || frame[2] !== 0x11) continue
-      this.onStatus(parseStatus(frame.slice(6, 6 + frame[5])))
+      const parsed = parseAntBmsRealtimeFrame(frame)
+      if (!parsed.ok) continue
+      this.onStatus(statusFromValues(parsed.values))
     }
   }
 

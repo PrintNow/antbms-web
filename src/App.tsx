@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AntBmsConnection, type BmsStatus } from './antBms'
+import { formatMinutes } from './protocol'
 
 type DashboardData = Partial<BmsStatus>
 type ConnectionPhase = 'idle' | 'connecting' | 'ready' | 'error'
@@ -33,6 +34,18 @@ function secondsToText(value: number | undefined): string {
   const days = Math.floor(value / 86400)
   const hours = Math.floor((value % 86400) / 3600)
   return days ? `${days} 天 ${hours} 小时` : `${hours} 小时`
+}
+
+function currentDirection(data: DashboardData): string {
+  if (data.state === '充电') return '充电'
+  if (data.state === '放电') return '放电'
+  if (data.state === '静置' || data.state === '待机') return '静置'
+  return '状态待确认'
+}
+
+function chargeTime(data: DashboardData): string {
+  if (data.state !== '充电' && !data.chargerOnline) return '暂不可用'
+  return formatMinutes(data.chargeRemainingMinutes) ?? '暂不可用'
 }
 
 export default function App() {
@@ -88,8 +101,10 @@ export default function App() {
       <section className="metrics">
         <MetricCard label="总容量" value={display(data.totalAh)} unit="Ah" />
         <MetricCard label="剩余能量" value={display(data.remainingAh)} unit="Ah" />
-        <MetricCard label="电压 / 电流" value={`${display(data.voltage)} V`} unit={Number.isFinite(data.current) ? `${display(data.current, 1)} A` : ''} />
+        <MetricCard label={`实时电流 · ${currentDirection(data)}`} value={display(data.current, 1)} unit="A" />
         <MetricCard label="SOH / 实时功率" value={`${display(data.soh, 0)} %`} unit={Number.isFinite(data.power) ? `${display(data.power, 0)} W` : ''} />
+        <MetricCard label="充电状态" value={data.state === '充电' ? '充电中' : data.state ?? '—'} />
+        <MetricCard label="充电剩余时间" value={chargeTime(data)} />
       </section>
     </section>
     <section className="detail-grid">
@@ -98,7 +113,7 @@ export default function App() {
         <div className="cell-list">{data.cellVoltages?.length ? data.cellVoltages.map((value, index) => <span key={index}>#{index + 1}<b>{value.toFixed(3)} V</b></span>) : <em>连接后显示每串电芯电压</em>}</div>
       </article>
       <article className="detail-panel"><div className="panel-heading"><div><p>温度与 MOS</p><h2>热不热，一看便知</h2></div><span>🌡️</span></div>
-        <div className="key-values"><div><span>MOS 温度</span><b>{display(data.mosTemperature, 0)} °C</b></div><div><span>均衡温度</span><b>{display(data.balanceTemperature, 0)} °C</b></div><div><span>充电 MOS</span><b>{mosLabel(data.chargeMos)}</b></div><div><span>放电 MOS</span><b>{mosLabel(data.dischargeMos)}</b></div></div>
+        <div className="key-values"><div><span>MOS 温度</span><b>{display(data.mosTemperature, 0)} °C</b></div><div><span>均衡温度</span><b>{display(data.balanceTemperature, 0)} °C</b></div><div><span>充电 MOS</span><b>{mosLabel(data.chargeMos)}</b></div><div><span>放电 MOS</span><b>{mosLabel(data.dischargeMos)}</b></div><div><span>充电器</span><b>{data.chargerOnline === undefined ? '暂不可用' : data.chargerOnline ? '在线' : '离线'}</b></div><div><span>充电器输出</span><b>{data.chargerOutputVoltage === undefined || data.chargerOutputCurrent === undefined ? '暂不可用' : `${display(data.chargerOutputVoltage, 1)} V / ${display(data.chargerOutputCurrent, 1)} A`}</b></div></div>
         <div className="sensor-row">{data.temperatures?.length ? data.temperatures.map((value, index) => <span key={index}>T{index + 1} <b>{value}°</b></span>) : <em>温度传感器数据待连接</em>}</div>
       </article>
       <article className="detail-panel"><div className="panel-heading"><div><p>运行与安全</p><h2>保护板的碎碎念</h2></div><span>🛡️</span></div>
